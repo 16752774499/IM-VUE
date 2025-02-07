@@ -6,39 +6,35 @@
       <div class="user-avatar" @click="showUserMenu = true">
         <el-avatar :size="40" :src="userStore.userAvatar" />
       </div>
-      
+
       <!-- 主菜单 -->
       <div class="main-menu">
-        <div 
-          class="menu-item" 
-          :class="{ active: activeMenu === 'chat' }"
-          @click="handleMenuSelect('chat')"
-        >
+        <div class="menu-item" :class="{ active: activeMenu === 'chat' }" @click="handleMenuSelect('chat')">
           <el-badge :value="unreadCount" :hidden="!unreadCount">
-            <el-icon><ChatDotRound /></el-icon>
+            <el-icon>
+              <ChatDotRound />
+            </el-icon>
           </el-badge>
         </div>
-        <div 
-          class="menu-item" 
-          :class="{ active: activeMenu === 'friends' }"
-          @click="handleMenuSelect('friends')"
-        >
-          <el-icon><UserFilled /></el-icon>
+        <div class="menu-item" :class="{ active: activeMenu === 'friends' }" @click="handleMenuSelect('friends')">
+          <el-icon>
+            <UserFilled />
+          </el-icon>
         </div>
       </div>
 
       <!-- 底部菜单 -->
       <div class="bottom-menu">
         <div class="menu-item" @click="showSearchDialog = true">
-          <el-icon><Plus /></el-icon>
+          <el-icon>
+            <Plus />
+          </el-icon>
         </div>
-        <div 
-          class="menu-item" 
-          :class="{ active: activeMenu === 'requests' }"
-          @click="handleMenuSelect('requests')"
-        >
+        <div class="menu-item" :class="{ active: activeMenu === 'requests' }" @click="handleMenuSelect('requests')">
           <el-badge :value="friendRequests.length" :hidden="!friendRequests.length">
-            <el-icon><Bell /></el-icon>
+            <el-icon>
+              <Bell />
+            </el-icon>
           </el-badge>
         </div>
       </div>
@@ -48,23 +44,13 @@
     <div class="list-sidebar">
       <!-- 搜索框 -->
       <div class="search-box">
-        <el-input
-          v-model="searchKey"
-          placeholder="搜索"
-          :prefix-icon="Search"
-          clearable
-        />
+        <el-input v-model="searchKey" placeholder="搜索" :prefix-icon="Search" clearable />
       </div>
 
       <!-- 聊天列表 -->
       <div v-if="activeMenu === 'chat'" class="chat-list">
-        <div
-          v-for="[userId, session] in Array.from(chatSessions)"
-          :key="userId"
-          class="chat-item"
-          :class="{ active: currentContact?.id === userId }"
-          @click="startChat(session.userInfo)"
-        >
+        <div v-for="[userId, session] in Array.from(chatSessions)" :key="userId" class="chat-item"
+          :class="{ active: currentContact?.id === userId }" @click="startChat(session.userInfo)">
           <el-avatar :size="40" :src="getAvatarUrl(session.userInfo.avatar)" />
           <div class="chat-info">
             <div class="chat-header">
@@ -79,13 +65,8 @@
 
       <!-- 好友列表 -->
       <div v-if="activeMenu === 'friends'" class="friend-list">
-        <div
-          v-for="friend in friendList"
-          :key="friend.id"
-          class="friend-item"
-          :class="{ 'selected': selectedFriend === friend.id }"
-          @click="selectContact(friend)"
-        >
+        <div v-for="friend in friendList" :key="friend.id" class="friend-item"
+          :class="{ 'selected': selectedFriend === friend.id }" @click="selectContact(friend)">
           <el-avatar :size="40" :src="getAvatarUrl(friend.avatar)" />
           <div class="friend-info">
             <div class="friend-name">{{ friend.userName }}</div>
@@ -104,11 +85,7 @@
 
       <!-- 好友申请列表 -->
       <div v-if="activeMenu === 'requests'" class="request-list">
-        <div
-          v-for="request in friendRequests"
-          :key="request.id"
-          class="request-item"
-        >
+        <div v-for="request in friendRequests" :key="request.id" class="request-item">
           <el-avatar :size="40" :src="getAvatarUrl(request.from.avatar)" />
           <div class="request-info">
             <div class="request-name">{{ request.from.userName }}</div>
@@ -132,16 +109,9 @@
 
       <!-- 消息列表 -->
       <div class="message-list" ref="messageList">
-        <div
-          v-for="message in messages"
-          :key="message.id"
-          class="message-item"
-          :class="{ 'message-self': message.isSelf }"
-        >
-          <el-avatar 
-            :size="40" 
-            :src="message.isSelf ? userStore.userAvatar : getAvatarUrl(currentContact.avatar)"
-          />
+        <div v-for="message in messages" :key="message.id" class="message-item"
+          :class="{ 'message-self': message.isSelf }">
+          <el-avatar :size="40" :src="message.isSelf ? userStore.userAvatar : getAvatarUrl(currentContact.avatar)" />
           <div class="message-content">{{ message.content }}</div>
         </div>
       </div>
@@ -149,19 +119,19 @@
       <!-- 输入区域 -->
       <div class="input-area">
         <div class="toolbar">
-          <el-icon><ChatRound /></el-icon>
-          <el-icon><Document /></el-icon>
-          <el-icon><FolderOpened /></el-icon>
+          <el-icon>
+            <ChatRound />
+          </el-icon>
+          <el-icon>
+            <Document />
+          </el-icon>
+          <el-icon>
+            <FolderOpened />
+          </el-icon>
         </div>
         <div class="input-box">
-          <el-input
-            v-model="messageInput"
-            type="textarea"
-            :rows="3"
-            placeholder="输入消息..."
-            resize="none"
-            @keyup.enter.exact="sendMessage"
-          />
+          <el-input v-model="messageInput" type="textarea" :rows="3" placeholder="输入消息..." resize="none"
+            @keyup.enter.exact="sendMessage" />
           <el-button type="primary" @click="sendMessage">发送</el-button>
         </div>
       </div>
@@ -172,19 +142,9 @@
     </div>
 
     <!-- 搜索用户对话框 -->
-    <el-dialog
-      v-model="showSearchDialog"
-      title="添加好友"
-      width="400px"
-      :close-on-click-modal="false"
-    >
+    <el-dialog v-model="showSearchDialog" title="添加好友" width="400px" :close-on-click-modal="false">
       <div class="search-container">
-        <el-input
-          v-model="searchUsername"
-          placeholder="请输入用户名"
-          clearable
-          @keyup.enter="searchUser"
-        >
+        <el-input v-model="searchUsername" placeholder="请输入用户名" clearable @keyup.enter="searchUser">
           <template #append>
             <el-button type="primary" @click="searchUser">搜索</el-button>
           </template>
@@ -197,12 +157,7 @@
             <div class="user-info">
               <div class="username">{{ searchResult.userName }}</div>
             </div>
-            <el-button 
-              type="primary" 
-              @click="addFriend" 
-              :loading="addingFriend"
-              :disabled="addingFriend"
-            >
+            <el-button type="primary" @click="addFriend" :loading="addingFriend" :disabled="addingFriend">
               添加好友
             </el-button>
           </div>
@@ -215,9 +170,9 @@
 <script setup>
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { 
-  ArrowLeft, 
-  Plus, 
+import {
+  ArrowLeft,
+  Plus,
   ChatDotRound,
   UserFilled,
   Bell,
@@ -230,7 +185,7 @@ import { ElMessage } from 'element-plus'
 import defaultAvatar from '../assets/avatar.jpg'
 import { useUserStore } from '../stores/user'
 import { request } from '../utils/request'
-import { API_ENDPOINTS, API_BASE_URL } from '../config'
+import { API_ENDPOINTS, API_BASE_URL, WS_URL } from '../config'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -261,9 +216,40 @@ const selectedFriend = ref(null)
 const ws = ref(null)
 const chatSessions = ref(new Map()) // 存储所有聊天会话 Map<userId, {lastMessage, unread, userInfo}>
 
-// 添加心跳连接的WebSocket
-const heartbeatWs = ref(null)
-const heartbeatInterval = ref(null)
+// 添加重连相关的状态
+const wsReconnectTimer = ref(null)
+const wsReconnectAttempts = ref(0)
+const MAX_RECONNECT_ATTEMPTS = 0 // 设为0表示无限重试
+
+// 从localStorage加载聊天会话
+const loadChatSessionsFromStorage = () => {
+  try {
+    const userId = userStore.userData.id
+    const savedSessions = localStorage.getItem(`chat_sessions_${userId}`)
+    if (savedSessions) {
+      const parsedSessions = JSON.parse(savedSessions)
+      chatSessions.value = new Map(parsedSessions)
+    }
+  } catch (error) {
+    console.error('Failed to load chat sessions from storage:', error)
+  }
+}
+
+// 保存聊天会话到localStorage
+const saveChatSessionsToStorage = () => {
+  try {
+    const userId = userStore.userData.id
+    const sessionsArray = Array.from(chatSessions.value.entries())
+    localStorage.setItem(`chat_sessions_${userId}`, JSON.stringify(sessionsArray))
+  } catch (error) {
+    console.error('Failed to save chat sessions to storage:', error)
+  }
+}
+
+// 监听聊天会话变化，自动保存
+watch(chatSessions, () => {
+  saveChatSessionsToStorage()
+}, { deep: true })
 
 // 计算搜索结果用户的头像URL
 const getAvatarUrl = (avatar) => {
@@ -275,24 +261,24 @@ const getAvatarUrl = (avatar) => {
 const formatTime = (date) => {
   const now = new Date()
   const messageDate = new Date(date)
-  
+
   // 如果是今天的消息，只显示时间
   if (messageDate.toDateString() === now.toDateString()) {
     return messageDate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
-  
+
   // 如果是昨天的消息
   const yesterday = new Date(now)
   yesterday.setDate(now.getDate() - 1)
   if (messageDate.toDateString() === yesterday.toDateString()) {
     return '昨天'
   }
-  
+
   // 如果是今年的消息
   if (messageDate.getFullYear() === now.getFullYear()) {
     return messageDate.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
   }
-  
+
   // 其他情况显示完整日期
   return messageDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
@@ -306,7 +292,7 @@ const searchUser = async () => {
 
   try {
     console.log('Searching user:', searchUsername.value)
-    
+
     // 创建 FormData
     const formData = new FormData()
     formData.append('user_name', searchUsername.value)
@@ -357,12 +343,12 @@ const addFriend = async () => {
 
   console.log('Adding friend:', searchResult.value)
   addingFriend.value = true
-  
+
   try {
     // 创建 FormData
     const formData = new FormData()
     formData.append('friend_id', searchResult.value.id)
-    
+
     console.log('Request URL:', API_ENDPOINTS.ADD_FRIEND)
     console.log('Request Data:', {
       friend_id: searchResult.value.id
@@ -414,21 +400,66 @@ watch(() => messages.value.length, () => {
 // 修改WebSocket连接管理
 const connectWebSocket = () => {
   const currentUserId = userStore.userData.id
-  const wsUrl = `ws://localhost:3000/ws/chat?uid=${currentUserId}`
-  
+  const wsUrl = `${WS_URL}/ws/chat?uid=${currentUserId}`
+
   if (ws.value) {
     ws.value.close()
   }
-  
-  ws.value = new WebSocket(wsUrl)
-  
-  ws.value.onopen = () => {
-    console.log('Chat WebSocket connected:', wsUrl)
+
+  try {
+    ws.value = new WebSocket(wsUrl)
+
+    ws.value.onopen = () => {
+      console.log('Chat WebSocket connected:', wsUrl)
+      // 连接成功，重置重连次数
+      wsReconnectAttempts.value = 0
+      // 清除重连定时器
+      if (wsReconnectTimer.value) {
+        clearTimeout(wsReconnectTimer.value)
+        wsReconnectTimer.value = null
+      }
+    }
+
+    ws.value.onmessage = handleChatMessage
+    ws.value.onerror = handleChatError
+    ws.value.onclose = handleChatClose
+  } catch (error) {
+    console.error('WebSocket connection failed:', error)
+    handleReconnect()
   }
-  
-  ws.value.onmessage = handleChatMessage
-  ws.value.onerror = handleChatError
-  ws.value.onclose = handleChatClose
+}
+
+// 添加重连处理函数
+const handleReconnect = () => {
+  // 如果已经有重连定时器在运行，不需要再次设置
+  if (wsReconnectTimer.value) {
+    return
+  }
+
+  // 如果设置了最大重连次数，且已达到最大次数，则停止重连
+  if (MAX_RECONNECT_ATTEMPTS > 0 && wsReconnectAttempts.value >= MAX_RECONNECT_ATTEMPTS) {
+    console.log('Max reconnection attempts reached')
+    ElMessage.error('WebSocket连接失败，请刷新页面重试')
+    return
+  }
+
+  console.log(`Attempting to reconnect in 10 seconds... (Attempt ${wsReconnectAttempts.value + 1})`)
+  wsReconnectTimer.value = setTimeout(() => {
+    wsReconnectAttempts.value++
+    connectWebSocket()
+  }, 10000)
+}
+
+// 修改聊天错误处理函数
+const handleChatError = (error) => {
+  console.error('Chat WebSocket error:', error)
+  ElMessage.error('聊天连接出错，正在尝试重连...')
+}
+
+// 修改聊天连接关闭处理函数
+const handleChatClose = () => {
+  console.log('Chat WebSocket closed')
+  handleReconnect()
 }
 
 // 修改聊天消息处理函数
@@ -440,14 +471,14 @@ const handleChatMessage = async (event) => {
   if (message.type === 1) {
     const currentUserId = parseInt(userStore.userData.id)
     const messageToId = parseInt(message.to)
-    
+
     // 确保类型一致的比较
     if (messageToId === currentUserId) {
       const senderId = parseInt(message.from)
       console.log('Processing message from user:', senderId)
-      
+
       let session = chatSessions.value.get(senderId)
-      
+
       if (!session) {
         console.log('Creating new chat session for sender:', senderId)
         try {
@@ -460,10 +491,10 @@ const handleChatMessage = async (event) => {
               id: senderId
             })
           })
-          
+
           // 尝试从好友列表中查找用户信息
           const friendInfo = friendList.value.find(friend => friend.id === senderId)
-          
+
           let userData = null
           if (friendInfo) {
             userData = {
@@ -479,7 +510,7 @@ const handleChatMessage = async (event) => {
               avatar: defaultAvatar
             }
           }
-          
+
           // 创建新的聊天会话
           session = {
             lastMessage: message.content,
@@ -496,7 +527,7 @@ const handleChatMessage = async (event) => {
             userName: '用户' + senderId,
             avatar: defaultAvatar
           }
-          
+
           session = {
             lastMessage: message.content,
             unread: 0, // 初始化为0，稍后统一处理未读计数
@@ -506,7 +537,7 @@ const handleChatMessage = async (event) => {
           chatSessions.value.set(senderId, session)
         }
       }
-      
+
       if (session) {
         // 创建新消息对象
         const newMessage = {
@@ -514,27 +545,27 @@ const handleChatMessage = async (event) => {
           content: message.content,
           isSelf: false
         }
-        
+
         // 更新会话
         session.lastMessage = message.content
-        
+
         // 只有在不是当前聊天窗口时才增加未读计数
         if (currentContact.value?.id !== senderId) {
           session.unread += 1
           console.log('Incrementing unread count for session:', senderId, 'new count:', session.unread)
         }
-        
+
         // 将消息添加到会话的消息历史中
         if (!session.messages) {
           session.messages = []
         }
         session.messages.push(newMessage)
-        
+
         // 如果是当前聊天窗口的消息，更新显示的消息列表
         if (currentContact.value?.id === senderId) {
           messages.value = session.messages
         }
-        
+
         // 强制更新 Map 以触发视图更新
         chatSessions.value = new Map(chatSessions.value)
       }
@@ -545,7 +576,7 @@ const handleChatMessage = async (event) => {
 // 修改发送消息函数
 const sendMessage = () => {
   if (!messageInput.value.trim() || !ws.value) return
-  
+
   const targetId = parseInt(currentContact.value.id)
   const message = {
     type: 1,
@@ -553,17 +584,17 @@ const sendMessage = () => {
     to: targetId,
     content: messageInput.value
   }
-  
+
   try {
     ws.value.send(JSON.stringify(message))
-    
+
     // 创建新消息对象
     const newMessage = {
       id: Date.now(),
       content: messageInput.value,
       isSelf: true
     }
-    
+
     // 更新当前会话
     const session = chatSessions.value.get(targetId)
     if (session) {
@@ -576,7 +607,7 @@ const sendMessage = () => {
       // 强制更新 Map 以触发视图更新
       chatSessions.value = new Map(chatSessions.value)
     }
-    
+
     messageInput.value = ''
   } catch (error) {
     console.error('Failed to send message:', error)
@@ -588,12 +619,12 @@ const sendMessage = () => {
 const startChat = (friend) => {
   const friendId = parseInt(friend.id)
   console.log('Starting chat with friend:', friendId)
-  
+
   // 确保friend.id是整数
   friend = { ...friend, id: friendId }
   currentContact.value = friend
   activeMenu.value = 'chat'
-  
+
   // 添加或更新聊天会话
   if (!chatSessions.value.has(friendId)) {
     chatSessions.value.set(friendId, {
@@ -603,7 +634,7 @@ const startChat = (friend) => {
       messages: []
     })
   }
-  
+
   // 获取或更新会话
   const session = chatSessions.value.get(friendId)
   if (session) {
@@ -620,25 +651,17 @@ onMounted(async () => {
     router.push('/login')
     return
   }
-  
+
   await userStore.loadUserAvatar()
   await loadFriendList()
   await loadFriendRequests()
-  
+
+  // 加载保存的聊天会话
+  loadChatSessionsFromStorage()
+
   // 建立WebSocket连接
   connectWebSocket()
 })
-
-// 聊天错误处理函数
-const handleChatError = (error) => {
-  console.error('Chat WebSocket error:', error)
-  ElMessage.error('聊天连接出错')
-}
-
-// 聊天连接关闭处理函数
-const handleChatClose = () => {
-  console.log('Chat WebSocket closed')
-}
 
 // 修改选择联系人函数
 const selectContact = (friend) => {
@@ -726,7 +749,7 @@ const handleAcceptRequest = async (friendRequest) => {
     formData.append('request_id', friendRequest.id)
     formData.append('action', 'accept')
     console.log("Accepting friend request:", friendRequest.id)
-    
+
     const response = await request(API_ENDPOINTS.HANDLE_FRIEND_REQUEST, {
       method: 'POST',
       headers: {},
@@ -772,12 +795,9 @@ const handleRejectRequest = async (friendRequest) => {
 
 // 添加 onUnmounted 钩子
 onUnmounted(() => {
-  // 清理心跳连接
-  if (heartbeatInterval.value) {
-    clearInterval(heartbeatInterval.value)
-  }
-  if (heartbeatWs.value) {
-    heartbeatWs.value.close()
+  // 清理重连定时器
+  if (wsReconnectTimer.value) {
+    clearTimeout(wsReconnectTimer.value)
   }
   // 清理聊天连接
   if (ws.value) {
@@ -857,7 +877,8 @@ onUnmounted(() => {
   border-bottom: 1px solid #eee;
 }
 
-.chat-item, .friend-item {
+.chat-item,
+.friend-item {
   padding: 12px;
   display: flex;
   align-items: center;
@@ -865,7 +886,8 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.chat-item:hover, .friend-item:hover {
+.chat-item:hover,
+.friend-item:hover {
   background-color: #f5f5f5;
 }
 
@@ -1142,7 +1164,7 @@ onUnmounted(() => {
     flex-direction: column;
     gap: 4px;
   }
-  
+
   .friend-actions .el-button {
     padding: 4px 8px;
     font-size: 12px;
@@ -1178,8 +1200,10 @@ onUnmounted(() => {
 }
 
 /* 修改列表容器背景色 */
-.chat-list, .friend-list, .request-list {
+.chat-list,
+.friend-list,
+.request-list {
   flex: 1;
   overflow-y: auto;
 }
-</style> 
+</style>

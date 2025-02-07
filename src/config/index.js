@@ -1,6 +1,9 @@
-// 根据环境变量设置API基础URL
-export const API_BASE_URL =
-    import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
+// 后端服务地址
+export const BACKEND_URL = 'http://localhost:3333'
+export const WS_URL = BACKEND_URL.replace('http', 'ws')
+
+// API基础URL
+export const API_BASE_URL = BACKEND_URL
 
 // API endpoints
 export const API_ENDPOINTS = {
