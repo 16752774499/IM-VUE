@@ -55,7 +55,7 @@
           <div class="chat-info">
             <div class="chat-header">
               <span class="chat-name">{{ session.userInfo.userName }}</span>
-              <span class="chat-time">{{ formatTime(new Date()) }}</span>
+              <span class="chat-time">{{ session.lastMessageTime ? formatTime(session.lastMessageTime) : '' }}</span>
             </div>
             <div class="chat-message">{{ session.lastMessage || '暂无消息' }}</div>
           </div>
@@ -109,10 +109,20 @@
 
       <!-- 消息列表 -->
       <div class="message-list" ref="messageList">
+        <div class="load-history-btn" @click="loadHistoryMessages" v-if="currentContact">
+          <span v-if="!isLoadingHistory">加载历史消息</span>
+          <span v-else>加载中...</span>
+        </div>
         <div v-for="message in messages" :key="message.id" class="message-item"
           :class="{ 'message-self': message.isSelf }">
           <el-avatar :size="40" :src="message.isSelf ? userStore.userAvatar : getAvatarUrl(currentContact.avatar)" />
           <div class="message-content">{{ message.content }}</div>
+          <div v-if="message.isSelf" class="message-status">
+            <span v-if="message.status === 'sending'" class="status-sending">发送中...</span>
+            <el-icon v-else-if="message.status === 'failed'" class="status-failed" @click="resendMessage(message)">
+              <Warning />
+            </el-icon>
+          </div>
         </div>
       </div>
 
@@ -179,13 +189,14 @@ import {
   Search,
   ChatRound,
   Document,
-  FolderOpened
+  FolderOpened,
+  Warning
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import defaultAvatar from '../assets/avatar.jpg'
 import { useUserStore } from '../stores/user'
 import { request } from '../utils/request'
-import { API_ENDPOINTS, API_BASE_URL, WS_URL } from '../config'
+import { API_ENDPOINTS, API_BASE_URL, WS_URL, CHAT_CONFIG } from '../config'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -215,20 +226,41 @@ const searchKey = ref('')   // 添加搜索关键字
 const selectedFriend = ref(null)
 const ws = ref(null)
 const chatSessions = ref(new Map()) // 存储所有聊天会话 Map<userId, {lastMessage, unread, userInfo}>
+const lastReceivedTimes = ref(new Map()) // 存储每个会话最后收到消息的时间戳 Map<userId, timestamp>
 
 // 添加重连相关的状态
 const wsReconnectTimer = ref(null)
 const wsReconnectAttempts = ref(0)
 const MAX_RECONNECT_ATTEMPTS = 0 // 设为0表示无限重试
 
+// 在 script 部分添加新的变量和函数
+const isLoadingHistory = ref(false)
+
 // 从localStorage加载聊天会话
 const loadChatSessionsFromStorage = () => {
   try {
     const userId = userStore.userData.id
     const savedSessions = localStorage.getItem(`chat_sessions_${userId}`)
+
     if (savedSessions) {
       const parsedSessions = JSON.parse(savedSessions)
-      chatSessions.value = new Map(parsedSessions)
+      const processedSessions = new Map()
+
+      for (const [sessionId, session] of parsedSessions) {
+        // 重置maxStoredMessages为配置的默认值
+        session.maxStoredMessages = CHAT_CONFIG.MAX_STORED_MESSAGES
+
+        // 对消息按时间戳排序
+        if (session.messages && session.messages.length > 0) {
+          session.messages.sort((a, b) => b.timestamp - a.timestamp) // 按时间戳降序排序
+          // 只保留最新的N条消息
+          session.messages = session.messages.slice(0, CHAT_CONFIG.MAX_STORED_MESSAGES)
+          // 恢复正确的时间顺序
+          session.messages.sort((a, b) => a.timestamp - b.timestamp)
+        }
+        processedSessions.set(sessionId, session)
+      }
+      chatSessions.value = processedSessions
     }
   } catch (error) {
     console.error('Failed to load chat sessions from storage:', error)
@@ -240,7 +272,10 @@ const saveChatSessionsToStorage = () => {
   try {
     const userId = userStore.userData.id
     const sessionsArray = Array.from(chatSessions.value.entries())
+    const timesArray = Array.from(lastReceivedTimes.value.entries())
+
     localStorage.setItem(`chat_sessions_${userId}`, JSON.stringify(sessionsArray))
+    localStorage.setItem(`last_received_times_${userId}`, JSON.stringify(timesArray))
   } catch (error) {
     console.error('Failed to save chat sessions to storage:', error)
   }
@@ -251,10 +286,20 @@ watch(chatSessions, () => {
   saveChatSessionsToStorage()
 }, { deep: true })
 
+// 监听lastReceivedTimes变化，自动保存
+watch(lastReceivedTimes, () => {
+  saveChatSessionsToStorage()
+}, { deep: true })
+
 // 计算搜索结果用户的头像URL
 const getAvatarUrl = (avatar) => {
-  if (!avatar) return defaultAvatar
-  return avatar.startsWith('http') ? avatar : `${API_BASE_URL}${avatar}`
+  if (!avatar || avatar === 'null' || avatar === 'undefined' || avatar === defaultAvatar) {
+    return defaultAvatar
+  }
+  if (avatar.startsWith('http') || avatar.startsWith('data:')) {
+    return avatar
+  }
+  return `${API_BASE_URL}${avatar}`
 }
 
 // 添加一个格式化时间的函数
@@ -388,15 +433,6 @@ window.addEventListener('resize', () => {
   isMobileView.value = window.innerWidth <= 768
 })
 
-// 监听消息列表变化，自动滚动到底部
-watch(() => messages.value.length, () => {
-  setTimeout(() => {
-    if (messageList.value) {
-      messageList.value.scrollTop = messageList.value.scrollHeight
-    }
-  }, 100)
-})
-
 // 修改WebSocket连接管理
 const connectWebSocket = () => {
   const currentUserId = userStore.userData.id
@@ -467,12 +503,10 @@ const handleChatMessage = async (event) => {
   const message = JSON.parse(event.data)
   console.log('Received chat message:', message)
 
-  // 只处理type为1的消息（用户间聊天）
   if (message.type === 1) {
     const currentUserId = parseInt(userStore.userData.id)
     const messageToId = parseInt(message.to)
 
-    // 确保类型一致的比较
     if (messageToId === currentUserId) {
       const senderId = parseInt(message.from)
       console.log('Processing message from user:', senderId)
@@ -482,28 +516,20 @@ const handleChatMessage = async (event) => {
       if (!session) {
         console.log('Creating new chat session for sender:', senderId)
         try {
-          const userResponse = await request(API_ENDPOINTS.USER, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              id: senderId
-            })
-          })
-
           // 尝试从好友列表中查找用户信息
           const friendInfo = friendList.value.find(friend => friend.id === senderId)
 
           let userData = null
           if (friendInfo) {
+            // 确保包含完整的用户信息
             userData = {
               id: senderId,
               userName: friendInfo.userName,
-              avatar: friendInfo.avatar,
+              avatar: friendInfo.avatar || defaultAvatar,
               ...friendInfo
             }
           } else {
+            // 如果找不到好友信息，使用默认值
             userData = {
               id: senderId,
               userName: '用户' + senderId,
@@ -514,14 +540,15 @@ const handleChatMessage = async (event) => {
           // 创建新的聊天会话
           session = {
             lastMessage: message.content,
-            unread: 0, // 初始化为0，稍后统一处理未读计数
+            unread: 0,
             userInfo: userData,
-            messages: []
+            messages: [],
+            lastMessageTime: message.time * 1000,
+            maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
           }
           chatSessions.value.set(senderId, session)
         } catch (error) {
           console.error('Failed to get user info:', error)
-          // 使用默认值创建会话
           const userData = {
             id: senderId,
             userName: '用户' + senderId,
@@ -530,98 +557,261 @@ const handleChatMessage = async (event) => {
 
           session = {
             lastMessage: message.content,
-            unread: 0, // 初始化为0，稍后统一处理未读计数
+            unread: 0,
             userInfo: userData,
-            messages: []
+            messages: [],
+            lastMessageTime: message.time * 1000,
+            maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
           }
           chatSessions.value.set(senderId, session)
         }
       }
 
       if (session) {
-        // 创建新消息对象
         const newMessage = {
           id: Date.now(),
           content: message.content,
-          isSelf: false
+          isSelf: false,
+          timestamp: message.time * 1000 // 转换为毫秒级时间戳用于显示
         }
 
-        // 更新会话
         session.lastMessage = message.content
+        session.lastMessageTime = message.time * 1000 // 转换为毫秒级时间戳用于显示
 
-        // 只有在不是当前聊天窗口时才增加未读计数
         if (currentContact.value?.id !== senderId) {
           session.unread += 1
-          console.log('Incrementing unread count for session:', senderId, 'new count:', session.unread)
         }
 
-        // 将消息添加到会话的消息历史中
         if (!session.messages) {
           session.messages = []
         }
+
+        // 添加新消息
         session.messages.push(newMessage)
 
-        // 如果是当前聊天窗口的消息，更新显示的消息列表
+        // 如果不是在加载历史消息，则使用默认的存储限制
+        if (session.maxStoredMessages > CHAT_CONFIG.MAX_STORED_MESSAGES && !isLoadingHistory.value) {
+          session.maxStoredMessages = CHAT_CONFIG.MAX_STORED_MESSAGES
+        }
+
+        // 如果消息数量超过限制，删除最早的消息
+        if (session.messages.length > session.maxStoredMessages) {
+          session.messages = session.messages.slice(-session.maxStoredMessages)
+        }
+
         if (currentContact.value?.id === senderId) {
           messages.value = session.messages
         }
 
-        // 强制更新 Map 以触发视图更新
         chatSessions.value = new Map(chatSessions.value)
       }
+    }
+  } else if (message.type === 2) {
+    // 处理历史消息响应
+    if (message.content === "没有更多历史记录了！") {
+      ElMessage.info('没有更多历史消息了')
+      return
+    }
+
+    try {
+      // 解析历史消息数组
+      const historyMessages = JSON.parse(message.content)
+      if (!Array.isArray(historyMessages) || historyMessages.length === 0) {
+        return
+      }
+
+      // 获取当前会话
+      const currentUserId = parseInt(userStore.userData.id)
+      const session = chatSessions.value.get(currentContact.value.id)
+      if (!session) return
+
+      // 处理每条历史消息
+      for (const historyMessage of historyMessages) {
+        try {
+          // 创建新的消息对象
+          const newMessage = {
+            id: historyMessage.time * 1000, // 使用消息时间作为ID
+            content: historyMessage.content,
+            isSelf: historyMessage.from === currentUserId,
+            timestamp: historyMessage.time * 1000 // 转换为毫秒级时间戳用于显示
+          }
+
+          // 将消息添加到会话开头
+          session.messages.unshift(newMessage)
+        } catch (parseError) {
+          console.error('Failed to parse history message:', parseError, historyMessage)
+          continue
+        }
+      }
+
+      // 更新视图
+      if (currentContact.value?.id === session.userInfo.id) {
+        messages.value = session.messages
+      }
+
+      // 更新会话Map以触发视图更新
+      chatSessions.value = new Map(chatSessions.value)
+
+    } catch (error) {
+      console.error('Failed to process history messages:', error)
+      ElMessage.error('处理历史消息失败')
     }
   }
 }
 
 // 修改发送消息函数
-const sendMessage = () => {
-  if (!messageInput.value.trim() || !ws.value) return
+const sendMessage = async () => {
+  if (!messageInput.value.trim()) return
 
+  const messageContent = messageInput.value.trim()
   const targetId = parseInt(currentContact.value.id)
-  const message = {
-    type: 1,
-    from: parseInt(userStore.userData.id),
-    to: targetId,
-    content: messageInput.value
+  const currentTime = Date.now()
+
+  const newMessage = {
+    id: currentTime,
+    content: messageContent,
+    isSelf: true,
+    status: 'sending',
+    timestamp: currentTime // 保持毫秒级时间戳用于显示
+  }
+
+  const session = chatSessions.value.get(targetId)
+  if (!session) return
+
+  if (!session.messages) {
+    session.messages = []
+  }
+
+  // 添加新消息
+  session.messages.push(newMessage)
+
+  // 使用会话特定的存储限制
+  const maxMessages = session.maxStoredMessages || CHAT_CONFIG.MAX_STORED_MESSAGES
+  if (session.messages.length > maxMessages) {
+    session.messages = session.messages.slice(-maxMessages)
+  }
+
+  messages.value = session.messages
+  messageInput.value = ''
+
+  await sendMessageWithRetry(newMessage, targetId)
+}
+
+// 添加消息重发功能
+const resendMessage = async (message) => {
+  const targetId = parseInt(currentContact.value.id)
+  message.status = 'sending'
+  await sendMessageWithRetry(message, targetId)
+}
+
+// 修改发送消息的WebSocket数据结构
+const sendMessageWithRetry = async (message, targetId) => {
+  const sendWithTimeout = () => {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('发送超时'))
+      }, 10000)
+
+      try {
+        if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+          reject(new Error('WebSocket未连接'))
+          return
+        }
+
+        const wsMessage = {
+          type: 1,
+          from: parseInt(userStore.userData.id),
+          to: targetId,
+          content: message.content,
+          time: Math.floor(message.timestamp / 1000) // 转换为秒级时间戳
+        }
+
+        ws.value.send(JSON.stringify(wsMessage))
+        clearTimeout(timeoutId)
+        resolve()
+      } catch (error) {
+        clearTimeout(timeoutId)
+        reject(error)
+      }
+    })
   }
 
   try {
-    ws.value.send(JSON.stringify(message))
+    // 如果WebSocket未连接，尝试重连
+    if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket未连接，尝试重连...')
+      connectWebSocket()
 
-    // 创建新消息对象
-    const newMessage = {
-      id: Date.now(),
-      content: messageInput.value,
-      isSelf: true
+      // 等待连接建立
+      await new Promise((resolve) => {
+        const checkConnection = setInterval(() => {
+          if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+            clearInterval(checkConnection)
+            resolve()
+          }
+        }, 100)
+
+        // 10秒后停止等待
+        setTimeout(() => {
+          clearInterval(checkConnection)
+          resolve()
+        }, 10000)
+      })
     }
 
-    // 更新当前会话
+    // 尝试发送消息
+    await sendWithTimeout()
+
+    // 发送成功，更新消息状态
+    message.status = 'sent'
+    delete message.status // 发送成功后删除状态标记，这样不会保存到localStorage
+
+    // 更新会话
     const session = chatSessions.value.get(targetId)
     if (session) {
-      session.lastMessage = messageInput.value
-      if (!session.messages) {
-        session.messages = []
-      }
-      session.messages.push(newMessage)
-      messages.value = session.messages
+      session.lastMessage = message.content
+      session.lastMessageTime = message.timestamp
       // 强制更新 Map 以触发视图更新
       chatSessions.value = new Map(chatSessions.value)
     }
-
-    messageInput.value = ''
   } catch (error) {
-    console.error('Failed to send message:', error)
-    ElMessage.error('发送失败，请重试')
+    console.error('发送消息失败:', error)
+    message.status = 'failed'
+    ElMessage.error('发送失败，点击消息重试')
+
+    // 更新视图
+    const session = chatSessions.value.get(targetId)
+    if (session) {
+      chatSessions.value = new Map(chatSessions.value)
+    }
   }
 }
 
-// 修改开始聊天函数
+// 添加滚动到底部的函数
+const scrollToBottom = () => {
+  setTimeout(() => {
+    if (messageList.value) {
+      messageList.value.scrollTop = messageList.value.scrollHeight
+    }
+  }, 100)
+}
+
+// 监听消息列表变化，自动滚动到底部
+watch(() => messages.value.length, () => {
+  scrollToBottom()
+})
+
+// 修改 startChat 函数，在切换对话时滚动到底部
 const startChat = (friend) => {
   const friendId = parseInt(friend.id)
   console.log('Starting chat with friend:', friendId)
 
-  // 确保friend.id是整数
-  friend = { ...friend, id: friendId }
+  // 确保friend.id是整数，并且包含完整的用户信息
+  friend = {
+    ...friend,
+    id: friendId,
+    avatar: friend.avatar || defaultAvatar
+  }
   currentContact.value = friend
   activeMenu.value = 'chat'
 
@@ -631,8 +821,17 @@ const startChat = (friend) => {
       lastMessage: '',
       unread: 0,
       userInfo: friend,
-      messages: []
+      messages: [],
+      lastMessageTime: null,
+      maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
     })
+  } else {
+    // 更新现有会话的用户信息
+    const session = chatSessions.value.get(friendId)
+    session.userInfo = {
+      ...session.userInfo,
+      ...friend
+    }
   }
 
   // 获取或更新会话
@@ -642,6 +841,8 @@ const startChat = (friend) => {
     messages.value = session.messages || []
     // 强制更新 Map 以触发视图更新
     chatSessions.value = new Map(chatSessions.value)
+    // 滚动到底部
+    scrollToBottom()
   }
 }
 
@@ -804,6 +1005,53 @@ onUnmounted(() => {
     ws.value.close()
   }
 })
+
+// 添加获取最早消息时间戳的函数
+const getEarliestMessageTimestamp = (userId) => {
+  const session = chatSessions.value.get(userId)
+  if (session?.messages?.length > 0) {
+    // 因为消息是按时间顺序排列的，第一条就是最早的
+    return session.messages[0].timestamp
+  }
+  return null
+}
+
+// 修改加载历史消息的函数
+const loadHistoryMessages = async () => {
+  if (!currentContact.value || isLoadingHistory.value) return
+
+  isLoadingHistory.value = true
+  try {
+    const session = chatSessions.value.get(currentContact.value.id)
+    if (!session) return
+
+    // 获取当前会话中最早的消息时间戳，并转换为秒级
+    const earliestTimestamp = session.messages && session.messages.length > 0
+      ? Math.floor(session.messages[0].timestamp / 1000)
+      : Math.floor(Date.now() / 1000)
+
+    const historyRequest = {
+      type: 2,
+      from: parseInt(userStore.userData.id),
+      to: parseInt(currentContact.value.id),
+      content: earliestTimestamp.toString(),
+      time: Math.floor(Date.now() / 1000) // 转换为秒级时间戳
+    }
+
+    console.log('Requesting chat history:', historyRequest)
+    ws.value.send(JSON.stringify(historyRequest))
+
+    // 临时增加存储容量以容纳历史消息
+    session.maxStoredMessages += CHAT_CONFIG.HISTORY_BATCH_SIZE
+    console.log(`Temporarily increased message storage capacity to ${session.maxStoredMessages}`)
+
+  } catch (error) {
+    console.error('Failed to request chat history:', error)
+    ElMessage.error('加载历史消息失败')
+  } finally {
+    isLoadingHistory.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -967,7 +1215,7 @@ onUnmounted(() => {
 .message-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px;
   max-width: 70%;
   margin-bottom: 20px;
   padding: 0 10px;
@@ -1205,5 +1453,48 @@ onUnmounted(() => {
 .request-list {
   flex: 1;
   overflow-y: auto;
+}
+
+/* 添加消息状态样式 */
+.message-status {
+  font-size: 12px;
+  margin: 0 8px;
+  display: flex;
+  align-items: center;
+}
+
+.status-sending {
+  color: #909399;
+}
+
+.status-failed {
+  color: #F56C6C;
+  cursor: pointer;
+}
+
+.status-failed:hover {
+  opacity: 0.8;
+}
+
+.load-history-btn {
+  text-align: center;
+  padding: 8px 15px;
+  color: #409EFF;
+  cursor: pointer;
+  font-size: 13px;
+  background-color: #fff;
+  border-radius: 4px;
+  margin: 0 auto 15px;
+  display: inline-block;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.load-history-btn:hover {
+  background-color: #ecf5ff;
+}
+
+.load-history-btn span {
+  user-select: none;
 }
 </style>

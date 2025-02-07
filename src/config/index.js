@@ -2,6 +2,12 @@
 export const BACKEND_URL = 'http://localhost:3333'
 export const WS_URL = BACKEND_URL.replace('http', 'ws')
 
+// 聊天配置
+export const CHAT_CONFIG = {
+    MAX_STORED_MESSAGES: 20,  // 每个会话最多存储的消息数量
+    HISTORY_BATCH_SIZE: 10    // 每次加载历史消息的数量
+}
+
 // API基础URL
 export const API_BASE_URL = BACKEND_URL
 
