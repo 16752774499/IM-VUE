@@ -1,6 +1,7 @@
 // 后端服务地址
 export const BACKEND_URL = 'http://localhost:3333'
 export const WS_URL = BACKEND_URL.replace('http', 'ws')
+export const MINIO_URL = 'http://localhost:1900'  // 添加 MinIO 服务地址
 
 // 聊天配置
 export const CHAT_CONFIG = {
@@ -20,9 +21,10 @@ export const API_ENDPOINTS = {
     ADD_FRIEND: `${API_BASE_URL}/user/add-friend`,
     GET_FRIENDS: `${API_BASE_URL}/user/friends`,
     GET_FRIEND_REQUESTS: `${API_BASE_URL}/user/friend-requests`,
-    HANDLE_FRIEND_REQUEST: `${API_BASE_URL}/user/handle-request`
+    HANDLE_FRIEND_REQUEST: `${API_BASE_URL}/user/handle-request`,
+    FILE_UPLOAD: `${API_BASE_URL}/file/upload`
 }
 
 // 前端开发服务器URL
 export const FRONTEND_URL =
-    import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173'
+    import.meta.env.VITE_FRONTEND_URL || 'http://192.168.0.189:5173'        

@@ -51,10 +51,10 @@
       <div v-if="activeMenu === 'chat'" class="chat-list">
         <div v-for="[userId, session] in Array.from(chatSessions)" :key="userId" class="chat-item"
           :class="{ active: currentContact?.id === userId }" @click="startChat(session.userInfo)">
-          <el-avatar :size="40" :src="getAvatarUrl(session.userInfo.avatar)" />
+          <el-avatar :size="40" :src="getAvatarUrl(session.userInfo?.avatar)" />
           <div class="chat-info">
             <div class="chat-header">
-              <span class="chat-name">{{ session.userInfo.userName }}</span>
+              <span class="chat-name">{{ session.userInfo?.userName }}</span>
               <span class="chat-time">{{ session.lastMessageTime ? formatTime(session.lastMessageTime) : '' }}</span>
             </div>
             <div class="chat-message">{{ session.lastMessage || '暂无消息' }}</div>
@@ -101,10 +101,9 @@
 
     <!-- 聊天区域 -->
     <div class="chat-area" v-if="currentContact">
-      <!-- 聊天头部 -->
       <div class="chat-header">
         <span class="contact-name">{{ currentContact.userName }}</span>
-        <span class="chat-time">{{ new Date(currentContact.lastMessageTime).toLocaleString() }}</span>
+        <span class="chat-time">{{ currentContact.lastMessageTime ? formatTime(currentContact.lastMessageTime) : '' }}</span>
       </div>
 
       <!-- 消息列表 -->
@@ -115,8 +114,69 @@
         </div>
         <div v-for="message in messages" :key="message.id" class="message-item"
           :class="{ 'message-self': message.isSelf }">
-          <el-avatar :size="40" :src="message.isSelf ? userStore.userAvatar : getAvatarUrl(currentContact.avatar)" />
-          <div class="message-content">{{ message.content }}</div>
+          <el-avatar :size="40" 
+            :src="message.isSelf ? userStore.userAvatar : getAvatarUrl(currentContact?.avatar)" />
+          <div class="message-content" :class="{ 'file-message': renderMessage(message).isFile }">
+            <template v-if="renderMessage(message).isFile">
+              <!-- 图片预览 -->
+              <div v-if="renderMessage(message).isImage" class="image-preview">
+                <el-image 
+                  :src="renderMessage(message).fileUrl"
+                  :preview-src-list="[renderMessage(message).fileUrl]"
+                  fit="cover"
+                  :initial-index="0"
+                  class="preview-image"
+                >
+                  <template #placeholder>
+                    <div class="image-placeholder">
+                      <el-icon><Picture /></el-icon>
+                      <span>加载中...</span>
+                    </div>
+                  </template>
+                  <template #error>
+                    <div class="image-error">
+                      <el-icon><Warning /></el-icon>
+                      <span>加载失败</span>
+                    </div>
+                  </template>
+                </el-image>
+                <div class="file-info">
+                  <div class="file-details">
+                    <div class="file-name">{{ renderMessage(message).fileName }}</div>
+                    <div class="file-size">{{ renderMessage(message).fileSize }}</div>
+                  </div>
+                </div>
+              </div>
+              <!-- 视频预览 -->
+              <div v-else-if="renderMessage(message).isVideo" class="video-preview">
+                <video 
+                  controls 
+                  class="preview-video"
+                  :src="renderMessage(message).fileUrl"
+                  preload="metadata"
+                >
+                  您的浏览器不支持视频播放
+                </video>
+                <div class="file-info">
+                  <div class="file-details">
+                    <div class="file-name">{{ renderMessage(message).fileName }}</div>
+                    <div class="file-size">{{ renderMessage(message).fileSize }}</div>
+                  </div>
+                </div>
+              </div>
+              <!-- 其他文件类型 -->
+              <div v-else class="file-info" @click="openFile(renderMessage(message).fileUrl, renderMessage(message).fileType)">
+                <el-icon><Document /></el-icon>
+                <div class="file-details">
+                  <div class="file-name">{{ renderMessage(message).fileName }}</div>
+                  <div class="file-size">{{ renderMessage(message).fileSize }}</div>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              {{ message.content }}
+            </template>
+          </div>
           <div v-if="message.isSelf" class="message-status">
             <span v-if="message.status === 'sending'" class="status-sending">发送中...</span>
             <el-icon v-else-if="message.status === 'failed'" class="status-failed" @click="resendMessage(message)">
@@ -129,20 +189,40 @@
       <!-- 输入区域 -->
       <div class="input-area">
         <div class="toolbar">
-          <el-icon>
-            <ChatRound />
-          </el-icon>
-          <el-icon>
-            <Document />
-          </el-icon>
-          <el-icon>
-            <FolderOpened />
-          </el-icon>
+          <div class="toolbar-button emoji-button" @click.stop="toggleEmojiPicker">
+            <el-icon :size="20">
+              <ChatRound />
+            </el-icon>
+            
+            <!-- 表情选择面板 -->
+            <div v-if="showEmojiPicker" class="emoji-picker" @click.stop>
+              <div class="emoji-container">
+                <div v-for="emoji in emojis" :key="emoji" class="emoji-item" @click.stop="insertEmoji(emoji)">
+                  {{ emoji }}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="toolbar-button" @click="handleFileSelect">
+            <el-icon :size="20">
+              <Document />
+            </el-icon>
+            <el-progress
+              v-if="isUploading"
+              type="circle"
+              :percentage="uploadProgress"
+              :width="20"
+              :show-text="false"
+              style="position: absolute; top: -5px; right: -5px;"
+            />
+          </div>
         </div>
+
         <div class="input-box">
           <el-input v-model="messageInput" type="textarea" :rows="3" placeholder="输入消息..." resize="none"
             @keyup.enter.exact="sendMessage" />
-          <el-button type="primary" @click="sendMessage">发送</el-button>
+          <div class="send-button" @click="sendMessage">发送(S)</div>
         </div>
       </div>
     </div>
@@ -178,7 +258,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
+import { ref, onMounted, watch, onUnmounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -190,13 +270,14 @@ import {
   ChatRound,
   Document,
   FolderOpened,
-  Warning
+  Warning,
+  Picture
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import defaultAvatar from '../assets/avatar.jpg'
 import { useUserStore } from '../stores/user'
 import { request } from '../utils/request'
-import { API_ENDPOINTS, API_BASE_URL, WS_URL, CHAT_CONFIG } from '../config'
+import { API_ENDPOINTS, API_BASE_URL, WS_URL, CHAT_CONFIG, MINIO_URL } from '../config'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -235,6 +316,28 @@ const MAX_RECONNECT_ATTEMPTS = 0 // 设为0表示无限重试
 
 // 在 script 部分添加新的变量和函数
 const isLoadingHistory = ref(false)
+
+// 在状态变量声明部分添加
+const showEmojiPicker = ref(false)
+const emojis = [
+  '😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊',
+  '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘',
+  '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪',
+  '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒',
+  '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖',
+  '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡',
+  '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰',
+  '😥', '😓', '🫣', '🤗', '🫡', '🤔', '🫢', '🤭',
+  '🥱', '😴', '😪', '😮‍💨', '😵‍💫', '🤐', '🥴', '🤢',
+  '👋', '🤚', '🖐️', '✋', '🫱', '🫲', '🫳', '🫴',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🤎', '🖤',
+  '👍', '👎', '👊', '✊', '🤛', '🤜', '🤝', '🙏'
+]
+
+// 在 script setup 部分添加
+const fileInput = ref(null)
+const uploadProgress = ref(0)
+const isUploading = ref(false)
 
 // 从localStorage加载聊天会话
 const loadChatSessionsFromStorage = () => {
@@ -296,7 +399,7 @@ const getAvatarUrl = (avatar) => {
   if (!avatar || avatar === 'null' || avatar === 'undefined' || avatar === defaultAvatar) {
     return defaultAvatar
   }
-  if (avatar.startsWith('http') || avatar.startsWith('data:')) {
+  if (typeof avatar === 'string' && (avatar.startsWith('http') || avatar.startsWith('data:'))) {
     return avatar
   }
   return `${API_BASE_URL}${avatar}`
@@ -304,8 +407,9 @@ const getAvatarUrl = (avatar) => {
 
 // 添加一个格式化时间的函数
 const formatTime = (date) => {
-  const now = new Date()
+  if (!date) return ''
   const messageDate = new Date(date)
+  const now = new Date()
 
   // 如果是今天的消息，只显示时间
   if (messageDate.toDateString() === now.toDateString()) {
@@ -503,7 +607,7 @@ const handleChatMessage = async (event) => {
   const message = JSON.parse(event.data)
   console.log('Received chat message:', message)
 
-  if (message.type === 1) {
+  if (message.type === 1 || message.type === 4) {
     const currentUserId = parseInt(userStore.userData.id)
     const messageToId = parseInt(message.to)
 
@@ -575,7 +679,22 @@ const handleChatMessage = async (event) => {
           timestamp: message.time * 1000 // 转换为毫秒级时间戳用于显示
         }
 
-        session.lastMessage = message.content
+        // 更新会话的最后一条消息显示
+        try {
+          if (message.content.startsWith('{')) {
+            const fileData = JSON.parse(message.content)
+            if (fileData.type === 'file') {
+              session.lastMessage = `[文件] ${fileData.fileName}`
+            } else {
+              session.lastMessage = message.content
+            }
+          } else {
+            session.lastMessage = message.content
+          }
+        } catch (e) {
+          session.lastMessage = message.content
+        }
+
         session.lastMessageTime = message.time * 1000 // 转换为毫秒级时间戳用于显示
 
         if (currentContact.value?.id !== senderId) {
@@ -601,6 +720,10 @@ const handleChatMessage = async (event) => {
 
         if (currentContact.value?.id === senderId) {
           messages.value = session.messages
+          // 如果当前正在与发送者聊天，滚动到底部
+          nextTick(() => {
+            scrollToBottom()
+          })
         }
 
         chatSessions.value = new Map(chatSessions.value)
@@ -608,35 +731,45 @@ const handleChatMessage = async (event) => {
     }
   } else if (message.type === 2) {
     // 处理历史消息响应
-    if (message.content === "没有更多历史记录了！") {
+    if (message.content === "null") {
       ElMessage.info('没有更多历史消息了')
+      isLoadingHistory.value = false
+      return
+    } else if (message.content === "error") {
+      ElMessage.error('获取历史消息失败')
+      isLoadingHistory.value = false
       return
     }
 
     try {
-      // 解析历史消息数组
       const historyMessages = JSON.parse(message.content)
       if (!Array.isArray(historyMessages) || historyMessages.length === 0) {
+        isLoadingHistory.value = false
         return
       }
 
       // 获取当前会话
       const currentUserId = parseInt(userStore.userData.id)
       const session = chatSessions.value.get(currentContact.value.id)
-      if (!session) return
+      if (!session) {
+        isLoadingHistory.value = false
+        return
+      }
+
+      // 记录当前滚动位置和高度
+      const messageListElement = messageList.value
+      const oldScrollHeight = messageListElement.scrollHeight
+      const oldScrollTop = messageListElement.scrollTop
 
       // 处理每条历史消息
       for (const historyMessage of historyMessages) {
         try {
-          // 创建新的消息对象
           const newMessage = {
-            id: historyMessage.time * 1000, // 使用消息时间作为ID
+            id: historyMessage.time * 1000,
             content: historyMessage.content,
             isSelf: historyMessage.from === currentUserId,
-            timestamp: historyMessage.time * 1000 // 转换为毫秒级时间戳用于显示
+            timestamp: historyMessage.time * 1000
           }
-
-          // 将消息添加到会话开头
           session.messages.unshift(newMessage)
         } catch (parseError) {
           console.error('Failed to parse history message:', parseError, historyMessage)
@@ -652,9 +785,20 @@ const handleChatMessage = async (event) => {
       // 更新会话Map以触发视图更新
       chatSessions.value = new Map(chatSessions.value)
 
+      // 在下一个 tick 调整滚动位置
+      nextTick(() => {
+        const newScrollHeight = messageListElement.scrollHeight
+        const scrollDiff = newScrollHeight - oldScrollHeight
+        messageListElement.scrollTop = oldScrollTop + scrollDiff
+      })
+
     } catch (error) {
       console.error('Failed to process history messages:', error)
       ElMessage.error('处理历史消息失败')
+    } finally {
+      setTimeout(() => {
+        isLoadingHistory.value = false
+      }, 500) // 延迟重置加载状态，确保滚动位置已经调整完成
     }
   }
 }
@@ -719,7 +863,7 @@ const sendMessageWithRetry = async (message, targetId) => {
         }
 
         const wsMessage = {
-          type: 1,
+          type: 4,
           from: parseInt(userStore.userData.id),
           to: targetId,
           content: message.content,
@@ -796,9 +940,12 @@ const scrollToBottom = () => {
   }, 100)
 }
 
-// 监听消息列表变化，自动滚动到底部
-watch(() => messages.value.length, () => {
-  scrollToBottom()
+// 修改监听消息列表变化的逻辑
+watch(() => messages.value.length, (newLength, oldLength) => {
+  // 只有在消息数量增加且不是加载历史消息时才滚动到底部
+  if (!isLoadingHistory.value && newLength > oldLength) {
+    scrollToBottom()
+  }
 })
 
 // 修改 startChat 函数，在切换对话时滚动到底部
@@ -862,6 +1009,7 @@ onMounted(async () => {
 
   // 建立WebSocket连接
   connectWebSocket()
+  document.addEventListener('click', closeEmojiPicker)
 })
 
 // 修改选择联系人函数
@@ -1004,6 +1152,7 @@ onUnmounted(() => {
   if (ws.value) {
     ws.value.close()
   }
+  document.removeEventListener('click', closeEmojiPicker)
 })
 
 // 添加获取最早消息时间戳的函数
@@ -1025,6 +1174,11 @@ const loadHistoryMessages = async () => {
     const session = chatSessions.value.get(currentContact.value.id)
     if (!session) return
 
+    // 记录当前滚动位置和高度
+    const messageListElement = messageList.value
+    const oldScrollHeight = messageListElement.scrollHeight
+    const oldScrollTop = messageListElement.scrollTop
+
     // 获取当前会话中最早的消息时间戳，并转换为秒级
     const earliestTimestamp = session.messages && session.messages.length > 0
       ? Math.floor(session.messages[0].timestamp / 1000)
@@ -1035,7 +1189,7 @@ const loadHistoryMessages = async () => {
       from: parseInt(userStore.userData.id),
       to: parseInt(currentContact.value.id),
       content: earliestTimestamp.toString(),
-      time: Math.floor(Date.now() / 1000) // 转换为秒级时间戳
+      time: Math.floor(Date.now() / 1000)
     }
 
     console.log('Requesting chat history:', historyRequest)
@@ -1045,12 +1199,198 @@ const loadHistoryMessages = async () => {
     session.maxStoredMessages += CHAT_CONFIG.HISTORY_BATCH_SIZE
     console.log(`Temporarily increased message storage capacity to ${session.maxStoredMessages}`)
 
+    // 在下一个 tick 调整滚动位置
+    nextTick(() => {
+      const newScrollHeight = messageListElement.scrollHeight
+      const scrollDiff = newScrollHeight - oldScrollHeight
+      messageListElement.scrollTop = oldScrollTop + scrollDiff
+    })
+
   } catch (error) {
     console.error('Failed to request chat history:', error)
     ElMessage.error('加载历史消息失败')
-  } finally {
-    isLoadingHistory.value = false
   }
+}
+
+// 添加表情选择器开关函数
+const toggleEmojiPicker = () => {
+  showEmojiPicker.value = !showEmojiPicker.value
+  console.log('Emoji picker toggled:', showEmojiPicker.value) // 添加调试日志
+}
+
+// 修改表情处理方法
+const insertEmoji = (emoji) => {
+  messageInput.value += emoji
+  showEmojiPicker.value = false
+}
+
+// 修改关闭表情选择器的方法
+const closeEmojiPicker = (event) => {
+  const picker = document.querySelector('.emoji-picker')
+  const button = document.querySelector('.emoji-button')
+  if (picker && !picker.contains(event.target) && !button.contains(event.target)) {
+    showEmojiPicker.value = false
+  }
+}
+
+// 添加文件选择和上传函数
+const handleFileSelect = async () => {
+  // 创建隐藏的文件输入框
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.style.display = 'none'
+  input.onchange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    
+    // 开始上传
+    isUploading.value = true
+    uploadProgress.value = 0
+    
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      const xhr = new XMLHttpRequest()
+      
+      // 监听上传进度
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          uploadProgress.value = Math.round((e.loaded / e.total) * 100)
+        }
+      }
+      
+      // 处理上传完成
+      const response = await new Promise((resolve, reject) => {
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            try {
+              resolve(JSON.parse(xhr.responseText))
+            } catch (error) {
+              reject(new Error('Invalid response format'))
+            }
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`))
+          }
+        }
+        xhr.onerror = () => reject(new Error('Upload failed'))
+        
+        // 发送请求
+        xhr.open('POST', API_ENDPOINTS.FILE_UPLOAD)
+        xhr.withCredentials = true // 携带 cookies
+        xhr.send(formData)
+      })
+      
+      if (response.status === 200) {
+        // 发送文件消息
+        const fileMessage = {
+          type: 'file',
+          fileName: response.fileName,
+          fileSize: response.fileSize,
+          fileType: response.fileType,
+          fileUrl: response.fileUrl  // 使用服务器返回的预签名URL
+        }
+        
+        // 发送WebSocket消息
+        const wsMessage = {
+          type: 4,
+          from: parseInt(userStore.userData.id),
+          to: parseInt(currentContact.value.id),
+          content: JSON.stringify(fileMessage),
+          time: Math.floor(Date.now() / 1000)
+        }
+        
+        // 添加到本地消息列表
+        const session = chatSessions.value.get(parseInt(currentContact.value.id))
+        if (session) {
+          const newMessage = {
+            id: Date.now(),
+            content: JSON.stringify(fileMessage),
+            isSelf: true,
+            timestamp: Date.now() 
+          }
+          session.messages.push(newMessage)
+          session.lastMessage = `[文件] ${fileMessage.fileName}`
+          session.lastMessageTime = Date.now()
+          messages.value = session.messages
+          nextTick(() => {
+            scrollToBottom()
+          })
+        }
+        
+        ws.value.send(JSON.stringify(wsMessage))
+        ElMessage.success('文件发送成功')
+      } else {
+        throw new Error(response.msg || '文件上传失败')
+      }
+    } catch (error) {
+      console.error('File upload failed:', error)
+      ElMessage.error('文件发送失败：' + error.message)
+    } finally { 
+      isUploading.value = false
+      uploadProgress.value = 0
+    }
+  }
+  
+  // 触发文件选择
+  document.body.appendChild(input)
+  input.click()
+  document.body.removeChild(input)
+}
+
+// 修改消息渲染函数
+const renderMessage = (message) => {
+  try {
+    if (typeof message.content === 'string' && message.content.startsWith('{')) {
+      const fileData = JSON.parse(message.content)
+      if (fileData.type === 'file') {
+        const isImage = fileData.fileType.startsWith('image/')
+        const isVideo = fileData.fileType.startsWith('video/')
+        
+        return {
+          isFile: true,
+          isImage,
+          isVideo,
+          fileName: fileData.fileName,
+          fileSize: formatFileSize(fileData.fileSize),
+          fileType: fileData.fileType,
+          fileUrl: fileData.fileUrl
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error parsing message:', e)
+  } 
+  
+  return {      
+    isFile: false,
+    content: message.content
+  }
+}
+
+// 文件大小格式化
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+// 修改文件打开函数
+const openFile = (url, fileType) => {
+  if (!url) {
+    ElMessage.error('无法打开文件：文件链接无效')
+    return
+  }
+  
+  // 对于其他类型的文件，使用下载方式处理
+  const link = document.createElement('a')
+  link.href = url
+  link.download = ''  // 浏览器会使用服务器返回的文件名
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 </script>
 
@@ -1254,43 +1594,123 @@ const loadHistoryMessages = async () => {
 .input-area {
   background-color: #fff;
   border-top: 1px solid #eee;
-  padding: 10px;
+  padding: 0;
 }
 
 .toolbar {
-  padding: 10px;
+  padding: 8px 16px;
   display: flex;
-  gap: 15px;
+  gap: 16px;
   color: #666;
-  font-size: 20px;
+  border-bottom: 1px solid #eee;
+  background-color: #f5f5f5;
 }
 
-.toolbar .el-icon {
+.toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  position: relative;
 }
 
-.toolbar .el-icon:hover {
-  color: #07c160;
+.toolbar-button:hover {
+  background-color: #e0e0e0;
+}
+
+.emoji-button {
+  position: relative;
+}
+
+/* 修改表情选择面板样式 */
+.emoji-picker {
+  position: absolute;
+  bottom: 120%;
+  left: 0;
+  background: white;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1);
+  padding: 8px;
+  z-index: 9999;
+  width: 300px;
+  margin-bottom: 4px;
+}
+
+.emoji-container {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.emoji-item {
+  font-size: 20px;
+  padding: 4px;
+  cursor: pointer;
+  text-align: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emoji-item:hover {
+  background-color: #f0f0f0;
+}
+
+/* 修改滚动条样式 */
+.emoji-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.emoji-container::-webkit-scrollbar-thumb {
+  background-color: #dcdfe6;
+  border-radius: 3px;
+}
+
+.emoji-container::-webkit-scrollbar-track {
+  background-color: transparent;
 }
 
 .input-box {
   display: flex;
   gap: 10px;
-  padding: 10px;
+  padding: 10px 16px;
+  background-color: #f5f5f5;
 }
 
 .input-box .el-textarea__inner {
   border: none;
   resize: none;
   box-shadow: none;
-  background-color: #f5f5f5;
+  background-color: #fff;
   border-radius: 4px;
   padding: 8px 12px;
+  min-height: 80px !important;
+  font-size: 14px;
 }
 
-.input-box .el-button {
+.send-button {
   align-self: flex-end;
+  padding: 6px 16px;
+  background-color: #f0f0f0;
+  color: #333;
   border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.send-button:hover {
+  background-color: #e0e0e0;
 }
 
 .no-chat {
@@ -1496,5 +1916,100 @@ const loadHistoryMessages = async () => {
 
 .load-history-btn span {
   user-select: none;
+}
+
+.file-message {
+  padding: 10px !important;
+  cursor: pointer;
+}
+
+.file-message:hover {
+  background-color: #f5f5f5;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-info .el-icon {
+  font-size: 24px;
+  color: #409EFF;
+}
+
+.file-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.file-name {
+  font-size: 14px;
+  color: #333;
+  word-break: break-all;
+}
+
+.file-size {
+  font-size: 12px;
+  color: #999;
+}
+
+.toolbar-button {
+  position: relative;
+}
+
+/* 图片预览样式 */
+.image-preview {
+  max-width: 300px;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #fff;
+}
+
+.preview-image {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+}
+
+.image-preview .file-info {
+  padding: 8px;
+  border-top: 1px solid #eee;
+}
+
+/* 视频预览样式 */
+.video-preview {
+  max-width: 300px;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #fff;
+}
+
+.preview-video {
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  background-color: #000;
+  border-radius: 4px 4px 0 0;
+}
+
+.video-preview .file-info {
+  padding: 8px;
+  border-top: 1px solid #eee;
+}
+
+/* 调整消息内容的最大宽度 */
+.message-content.file-message {
+  padding: 0;
+  overflow: hidden;
+  max-width: 300px;
+}
+
+/* 普通文件样式调整 */
+.message-content .file-info {
+  padding: 12px;
 }
 </style>
