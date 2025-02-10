@@ -15,6 +15,8 @@ export const API_BASE_URL = BACKEND_URL
 // API endpoints
 export const API_ENDPOINTS = {
     LOGIN: `${API_BASE_URL}/user/login`,
+    REGISTER: `${API_BASE_URL}/user/register`,  // 添加注册接口
+    LOGOUT: `${API_BASE_URL}/user/logout`,  // 添加注销接口
     USER: `${API_BASE_URL}/user`,
     CHECK_SESSION: `${API_BASE_URL}/user/check-session`,
     SEARCH_USER: `${API_BASE_URL}/user/search`,

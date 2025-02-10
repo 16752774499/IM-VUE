@@ -6,7 +6,7 @@
       <div class="user-avatar" @click="showUserMenu = true">
         <el-avatar :size="40" :src="userStore.userAvatar" />
       </div>
-
+      
       <!-- 主菜单 -->
       <div class="main-menu">
         <div class="menu-item" :class="{ active: activeMenu === 'chat' }" @click="handleMenuSelect('chat')">
@@ -36,6 +36,11 @@
               <Bell />
             </el-icon>
           </el-badge>
+        </div>
+        <div class="menu-item logout-item" @click="handleLogout">
+          <el-icon>
+            <SwitchButton />
+          </el-icon>
         </div>
       </div>
     </div>
@@ -199,7 +204,7 @@
               <div class="emoji-container">
                 <div v-for="emoji in emojis" :key="emoji" class="emoji-item" @click.stop="insertEmoji(emoji)">
                   {{ emoji }}
-                </div>
+        </div>
               </div>
             </div>
           </div>
@@ -260,9 +265,9 @@
 <script setup>
 import { ref, onMounted, watch, onUnmounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  ArrowLeft,
-  Plus,
+import { 
+  ArrowLeft, 
+  Plus, 
   ChatDotRound,
   UserFilled,
   Bell,
@@ -271,7 +276,8 @@ import {
   Document,
   FolderOpened,
   Warning,
-  Picture
+  Picture,
+  SwitchButton
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import defaultAvatar from '../assets/avatar.jpg'
@@ -410,24 +416,24 @@ const formatTime = (date) => {
   if (!date) return ''
   const messageDate = new Date(date)
   const now = new Date()
-
+  
   // 如果是今天的消息，只显示时间
   if (messageDate.toDateString() === now.toDateString()) {
     return messageDate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
-
+  
   // 如果是昨天的消息
   const yesterday = new Date(now)
   yesterday.setDate(now.getDate() - 1)
   if (messageDate.toDateString() === yesterday.toDateString()) {
     return '昨天'
   }
-
+  
   // 如果是今年的消息
   if (messageDate.getFullYear() === now.getFullYear()) {
     return messageDate.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
   }
-
+  
   // 其他情况显示完整日期
   return messageDate.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
@@ -441,7 +447,7 @@ const searchUser = async () => {
 
   try {
     console.log('Searching user:', searchUsername.value)
-
+    
     // 创建 FormData
     const formData = new FormData()
     formData.append('user_name', searchUsername.value)
@@ -492,12 +498,12 @@ const addFriend = async () => {
 
   console.log('Adding friend:', searchResult.value)
   addingFriend.value = true
-
+  
   try {
     // 创建 FormData
     const formData = new FormData()
     formData.append('friend_id', searchResult.value.id)
-
+    
     console.log('Request URL:', API_ENDPOINTS.ADD_FRIEND)
     console.log('Request Data:', {
       friend_id: searchResult.value.id
@@ -541,16 +547,16 @@ window.addEventListener('resize', () => {
 const connectWebSocket = () => {
   const currentUserId = userStore.userData.id
   const wsUrl = `${WS_URL}/ws/chat?uid=${currentUserId}`
-
+  
   if (ws.value) {
     ws.value.close()
   }
-
+  
   try {
-    ws.value = new WebSocket(wsUrl)
-
-    ws.value.onopen = () => {
-      console.log('Chat WebSocket connected:', wsUrl)
+  ws.value = new WebSocket(wsUrl)
+  
+  ws.value.onopen = () => {
+    console.log('Chat WebSocket connected:', wsUrl)
       // 连接成功，重置重连次数
       wsReconnectAttempts.value = 0
       // 清除重连定时器
@@ -558,11 +564,11 @@ const connectWebSocket = () => {
         clearTimeout(wsReconnectTimer.value)
         wsReconnectTimer.value = null
       }
-    }
-
-    ws.value.onmessage = handleChatMessage
-    ws.value.onerror = handleChatError
-    ws.value.onclose = handleChatClose
+  }
+  
+  ws.value.onmessage = handleChatMessage
+  ws.value.onerror = handleChatError
+  ws.value.onclose = handleChatClose
   } catch (error) {
     console.error('WebSocket connection failed:', error)
     handleReconnect()
@@ -610,37 +616,35 @@ const handleChatMessage = async (event) => {
   if (message.type === 1 || message.type === 4) {
     const currentUserId = parseInt(userStore.userData.id)
     const messageToId = parseInt(message.to)
-
+    
     if (messageToId === currentUserId) {
       const senderId = parseInt(message.from)
       console.log('Processing message from user:', senderId)
-
+      
       let session = chatSessions.value.get(senderId)
-
+      
       if (!session) {
         console.log('Creating new chat session for sender:', senderId)
         try {
-          // 尝试从好友列表中查找用户信息
-          const friendInfo = friendList.value.find(friend => friend.id === senderId)
-
+          // 获取发送者的用户信息
+          const formData = new FormData()
+          formData.append('id', senderId)
+          const userResponse = await request(API_ENDPOINTS.USER, {
+            method: 'POST',
+            body: formData
+          })
+          
           let userData = null
-          if (friendInfo) {
-            // 确保包含完整的用户信息
-            userData = {
-              id: senderId,
-              userName: friendInfo.userName,
-              avatar: friendInfo.avatar || defaultAvatar,
-              ...friendInfo
-            }
+          if (userResponse.status === 200 && userResponse.data) {
+            userData = userResponse.data
           } else {
-            // 如果找不到好友信息，使用默认值
             userData = {
               id: senderId,
               userName: '用户' + senderId,
               avatar: defaultAvatar
             }
           }
-
+          
           // 创建新的聊天会话
           session = {
             lastMessage: message.content,
@@ -658,7 +662,7 @@ const handleChatMessage = async (event) => {
             userName: '用户' + senderId,
             avatar: defaultAvatar
           }
-
+          
           session = {
             lastMessage: message.content,
             unread: 0,
@@ -670,7 +674,7 @@ const handleChatMessage = async (event) => {
           chatSessions.value.set(senderId, session)
         }
       }
-
+      
       if (session) {
         const newMessage = {
           id: Date.now(),
@@ -686,7 +690,7 @@ const handleChatMessage = async (event) => {
             if (fileData.type === 'file') {
               session.lastMessage = `[文件] ${fileData.fileName}`
             } else {
-              session.lastMessage = message.content
+        session.lastMessage = message.content
             }
           } else {
             session.lastMessage = message.content
@@ -700,14 +704,14 @@ const handleChatMessage = async (event) => {
         if (currentContact.value?.id !== senderId) {
           session.unread += 1
         }
-
+        
         if (!session.messages) {
           session.messages = []
         }
 
         // 添加新消息
         session.messages.push(newMessage)
-
+        
         // 如果不是在加载历史消息，则使用默认的存储限制
         if (session.maxStoredMessages > CHAT_CONFIG.MAX_STORED_MESSAGES && !isLoadingHistory.value) {
           session.maxStoredMessages = CHAT_CONFIG.MAX_STORED_MESSAGES
@@ -725,7 +729,7 @@ const handleChatMessage = async (event) => {
             scrollToBottom()
           })
         }
-
+        
         chatSessions.value = new Map(chatSessions.value)
       }
     }
@@ -811,7 +815,7 @@ const sendMessage = async () => {
   const targetId = parseInt(currentContact.value.id)
   const currentTime = Date.now()
 
-  const newMessage = {
+    const newMessage = {
     id: currentTime,
     content: messageContent,
     isSelf: true,
@@ -819,15 +823,15 @@ const sendMessage = async () => {
     timestamp: currentTime // 保持毫秒级时间戳用于显示
   }
 
-  const session = chatSessions.value.get(targetId)
+    const session = chatSessions.value.get(targetId)
   if (!session) return
 
-  if (!session.messages) {
-    session.messages = []
-  }
+      if (!session.messages) {
+        session.messages = []
+      }
 
   // 添加新消息
-  session.messages.push(newMessage)
+      session.messages.push(newMessage)
 
   // 使用会话特定的存储限制
   const maxMessages = session.maxStoredMessages || CHAT_CONFIG.MAX_STORED_MESSAGES
@@ -835,7 +839,7 @@ const sendMessage = async () => {
     session.messages = session.messages.slice(-maxMessages)
   }
 
-  messages.value = session.messages
+      messages.value = session.messages
   messageInput.value = ''
 
   await sendMessageWithRetry(newMessage, targetId)
@@ -948,48 +952,63 @@ watch(() => messages.value.length, (newLength, oldLength) => {
   }
 })
 
-// 修改 startChat 函数，在切换对话时滚动到底部
-const startChat = (friend) => {
+// 修改 startChat 函数
+const startChat = async (friend) => {
   const friendId = parseInt(friend.id)
   console.log('Starting chat with friend:', friendId)
-
-  // 确保friend.id是整数，并且包含完整的用户信息
-  friend = {
-    ...friend,
-    id: friendId,
-    avatar: friend.avatar || defaultAvatar
-  }
-  currentContact.value = friend
-  activeMenu.value = 'chat'
-
-  // 添加或更新聊天会话
-  if (!chatSessions.value.has(friendId)) {
-    chatSessions.value.set(friendId, {
-      lastMessage: '',
-      unread: 0,
-      userInfo: friend,
-      messages: [],
-      lastMessageTime: null,
-      maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
+  
+  try {
+    // 获取最新的用户信息
+    const formData = new FormData()
+    formData.append('id', friendId)
+    const userResponse = await request(API_ENDPOINTS.USER, {
+      method: 'POST',
+      body: formData
     })
-  } else {
-    // 更新现有会话的用户信息
-    const session = chatSessions.value.get(friendId)
-    session.userInfo = {
-      ...session.userInfo,
-      ...friend
+    
+    let userData = null
+    if (userResponse.status === 200 && userResponse.data) {
+      userData = userResponse.data
+    } else {
+      userData = {
+        id: friendId,
+        userName: friend.userName || '用户' + friendId,
+        avatar: friend.avatar || defaultAvatar
+      }
     }
-  }
-
-  // 获取或更新会话
-  const session = chatSessions.value.get(friendId)
-  if (session) {
-    session.unread = 0
-    messages.value = session.messages || []
-    // 强制更新 Map 以触发视图更新
-    chatSessions.value = new Map(chatSessions.value)
-    // 滚动到底部
-    scrollToBottom()
+    
+    currentContact.value = userData
+    activeMenu.value = 'chat'
+    
+    // 添加或更新聊天会话
+    if (!chatSessions.value.has(friendId)) {
+      chatSessions.value.set(friendId, {
+        lastMessage: '',
+        unread: 0,
+        userInfo: userData,
+        messages: [],
+        lastMessageTime: null,
+        maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
+      })
+    } else {
+      // 更新现有会话的用户信息
+      const session = chatSessions.value.get(friendId)
+      session.userInfo = userData
+    }
+    
+    // 获取或更新会话
+    const session = chatSessions.value.get(friendId)
+    if (session) {
+      session.unread = 0
+      messages.value = session.messages || []
+      // 强制更新 Map 以触发视图更新
+      chatSessions.value = new Map(chatSessions.value)
+      // 滚动到底部
+      scrollToBottom()
+    }
+  } catch (error) {
+    console.error('Failed to get user info:', error)
+    ElMessage.error('获取用户信息失败')
   }
 }
 
@@ -999,14 +1018,14 @@ onMounted(async () => {
     router.push('/login')
     return
   }
-
+  
   await userStore.loadUserAvatar()
   await loadFriendList()
   await loadFriendRequests()
 
   // 加载保存的聊天会话
   loadChatSessionsFromStorage()
-
+  
   // 建立WebSocket连接
   connectWebSocket()
   document.addEventListener('click', closeEmojiPicker)
@@ -1098,7 +1117,7 @@ const handleAcceptRequest = async (friendRequest) => {
     formData.append('request_id', friendRequest.id)
     formData.append('action', 'accept')
     console.log("Accepting friend request:", friendRequest.id)
-
+    
     const response = await request(API_ENDPOINTS.HANDLE_FRIEND_REQUEST, {
       method: 'POST',
       headers: {},
@@ -1391,6 +1410,28 @@ const openFile = (url, fileType) => {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+}
+
+// 修改注销处理函数
+const handleLogout = () => {
+  try {
+    // 清除 cookie
+    document.cookie.split(";").forEach(function(c) { 
+      document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/")
+    })
+    
+    // 关闭WebSocket连接
+    if (ws.value) {
+      ws.value.close()
+      ws.value = null
+    }
+    
+    // 刷新页面
+    window.location.reload()
+  } catch (error) {
+    console.error('Logout failed:', error)
+    ElMessage.error('注销失败，请重试')
+  }
 }
 </script>
 
@@ -1832,7 +1873,7 @@ const openFile = (url, fileType) => {
     flex-direction: column;
     gap: 4px;
   }
-
+  
   .friend-actions .el-button {
     padding: 4px 8px;
     font-size: 12px;
@@ -2012,4 +2053,14 @@ const openFile = (url, fileType) => {
 .message-content .file-info {
   padding: 12px;
 }
-</style>
+
+.logout-item {
+  margin-top: 10px;
+  color: #f56c6c;
+}
+
+.logout-item:hover {
+  background-color: rgba(245, 108, 108, 0.1);
+  color: #f56c6c;
+}
+</style> 
