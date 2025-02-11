@@ -402,7 +402,7 @@ watch(lastReceivedTimes, () => {
 
 // 计算搜索结果用户的头像URL
 const getAvatarUrl = (avatar) => {
-  if (!avatar || avatar === 'null' || avatar === 'undefined' || avatar === defaultAvatar) {
+  if (!avatar || avatar === 'null' || avatar === 'undefined' || avatar === '' || avatar === defaultAvatar) {
     return defaultAvatar
   }
   if (typeof avatar === 'string' && (avatar.startsWith('http') || avatar.startsWith('data:'))) {
@@ -627,51 +627,73 @@ const handleChatMessage = async (event) => {
         console.log('Creating new chat session for sender:', senderId)
         try {
           // 获取发送者的用户信息
-          const formData = new FormData()
-          formData.append('id', senderId)
           const userResponse = await request(API_ENDPOINTS.USER, {
             method: 'POST',
-            body: formData
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              id: senderId
+            })
           })
           
-          let userData = null
           if (userResponse.status === 200 && userResponse.data) {
-            userData = userResponse.data
+            // 创建新的聊天会话
+            session = {
+              lastMessage: message.content,
+              unread: 0, // 初始化为0
+              userInfo: userResponse.data,
+              messages: [],
+              lastMessageTime: message.time * 1000,
+              maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
+            }
+            chatSessions.value.set(senderId, session)
+            chatSessions.value = new Map(chatSessions.value)
           } else {
-            userData = {
+            throw new Error('Failed to get user info')
+          }
+        } catch (error) {
+          console.error('Failed to get user info:', error)
+          // 如果获取用户信息失败，先使用临时用户信息创建会话
+          session = {
+            lastMessage: message.content,
+            unread: 0, // 初始化为0
+            userInfo: {
               id: senderId,
               userName: '用户' + senderId,
               avatar: defaultAvatar
+            },
+            messages: [],
+            lastMessageTime: message.time * 1000,
+            maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
+          }
+          chatSessions.value.set(senderId, session)
+          chatSessions.value = new Map(chatSessions.value)
+          
+          // 继续尝试获取用户信息
+          setTimeout(async () => {
+            try {
+              const retryResponse = await request(API_ENDPOINTS.USER, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  id: senderId
+                })
+              })
+              
+              if (retryResponse.status === 200 && retryResponse.data) {
+                const existingSession = chatSessions.value.get(senderId)
+                if (existingSession) {
+                  existingSession.userInfo = retryResponse.data
+                  chatSessions.value = new Map(chatSessions.value)
+                }
+              }
+            } catch (retryError) {
+              console.error('Retry to get user info failed:', retryError)
             }
-          }
-          
-          // 创建新的聊天会话
-          session = {
-            lastMessage: message.content,
-            unread: 0,
-            userInfo: userData,
-            messages: [],
-            lastMessageTime: message.time * 1000,
-            maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
-          }
-          chatSessions.value.set(senderId, session)
-        } catch (error) {
-          console.error('Failed to get user info:', error)
-          const userData = {
-            id: senderId,
-            userName: '用户' + senderId,
-            avatar: defaultAvatar
-          }
-          
-          session = {
-            lastMessage: message.content,
-            unread: 0,
-            userInfo: userData,
-            messages: [],
-            lastMessageTime: message.time * 1000,
-            maxStoredMessages: CHAT_CONFIG.MAX_STORED_MESSAGES
-          }
-          chatSessions.value.set(senderId, session)
+          }, 2000)
         }
       }
       
@@ -680,7 +702,7 @@ const handleChatMessage = async (event) => {
           id: Date.now(),
           content: message.content,
           isSelf: false,
-          timestamp: message.time * 1000 // 转换为毫秒级时间戳用于显示
+          timestamp: message.time * 1000
         }
 
         // 更新会话的最后一条消息显示
@@ -690,7 +712,7 @@ const handleChatMessage = async (event) => {
             if (fileData.type === 'file') {
               session.lastMessage = `[文件] ${fileData.fileName}`
             } else {
-        session.lastMessage = message.content
+              session.lastMessage = message.content
             }
           } else {
             session.lastMessage = message.content
@@ -699,35 +721,31 @@ const handleChatMessage = async (event) => {
           session.lastMessage = message.content
         }
 
-        session.lastMessageTime = message.time * 1000 // 转换为毫秒级时间戳用于显示
+        session.lastMessageTime = message.time * 1000
 
+        // 只有当前没有查看该聊天时才增加未读数
         if (currentContact.value?.id !== senderId) {
-          session.unread += 1
+          session.unread = (session.unread || 0) + 1
         }
         
         if (!session.messages) {
           session.messages = []
         }
 
-        // 添加新消息
         session.messages.push(newMessage)
         
-        // 如果不是在加载历史消息，则使用默认的存储限制
         if (session.maxStoredMessages > CHAT_CONFIG.MAX_STORED_MESSAGES && !isLoadingHistory.value) {
           session.maxStoredMessages = CHAT_CONFIG.MAX_STORED_MESSAGES
         }
 
-        // 如果消息数量超过限制，删除最早的消息
         if (session.messages.length > session.maxStoredMessages) {
           session.messages = session.messages.slice(-session.maxStoredMessages)
         }
 
         if (currentContact.value?.id === senderId) {
           messages.value = session.messages
-          // 如果当前正在与发送者聊天，滚动到底部
-          nextTick(() => {
-            scrollToBottom()
-          })
+          // 确保新消息到达时滚动到底部
+          scrollToBottom()
         }
         
         chatSessions.value = new Map(chatSessions.value)
@@ -815,32 +833,33 @@ const sendMessage = async () => {
   const targetId = parseInt(currentContact.value.id)
   const currentTime = Date.now()
 
-    const newMessage = {
+  const newMessage = {
     id: currentTime,
     content: messageContent,
     isSelf: true,
     status: 'sending',
-    timestamp: currentTime // 保持毫秒级时间戳用于显示
+    timestamp: currentTime
   }
 
-    const session = chatSessions.value.get(targetId)
+  const session = chatSessions.value.get(targetId)
   if (!session) return
 
-      if (!session.messages) {
-        session.messages = []
-      }
+  if (!session.messages) {
+    session.messages = []
+  }
 
-  // 添加新消息
-      session.messages.push(newMessage)
+  session.messages.push(newMessage)
 
-  // 使用会话特定的存储限制
   const maxMessages = session.maxStoredMessages || CHAT_CONFIG.MAX_STORED_MESSAGES
   if (session.messages.length > maxMessages) {
     session.messages = session.messages.slice(-maxMessages)
   }
 
-      messages.value = session.messages
+  messages.value = session.messages
   messageInput.value = ''
+  
+  // 确保消息发送后滚动到底部
+  scrollToBottom()
 
   await sendMessageWithRetry(newMessage, targetId)
 }
@@ -935,13 +954,33 @@ const sendMessageWithRetry = async (message, targetId) => {
   }
 }
 
-// 添加滚动到底部的函数
+// 修改滚动到底部的函数
 const scrollToBottom = () => {
-  setTimeout(() => {
+  nextTick(() => {
     if (messageList.value) {
-      messageList.value.scrollTop = messageList.value.scrollHeight
+      const scrollHeight = messageList.value.scrollHeight
+      const duration = 300 // 滚动动画持续时间（毫秒）
+      const startPosition = messageList.value.scrollTop
+      const distance = scrollHeight - startPosition
+      const startTime = performance.now()
+
+      const scroll = (currentTime) => {
+        const elapsed = currentTime - startTime
+        const progress = Math.min(elapsed / duration, 1)
+        
+        // 使用 easeOutQuad 缓动函数使滚动更平滑
+        const easeProgress = 1 - (1 - progress) * (1 - progress)
+        
+        messageList.value.scrollTop = startPosition + (distance * easeProgress)
+        
+        if (progress < 1) {
+          requestAnimationFrame(scroll)
+        }
+      }
+      
+      requestAnimationFrame(scroll)
     }
-  }, 100)
+  })
 }
 
 // 修改监听消息列表变化的逻辑
@@ -959,11 +998,14 @@ const startChat = async (friend) => {
   
   try {
     // 获取最新的用户信息
-    const formData = new FormData()
-    formData.append('id', friendId)
     const userResponse = await request(API_ENDPOINTS.USER, {
       method: 'POST',
-      body: formData
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        id: friendId
+      })
     })
     
     let userData = null
@@ -994,6 +1036,7 @@ const startChat = async (friend) => {
       // 更新现有会话的用户信息
       const session = chatSessions.value.get(friendId)
       session.userInfo = userData
+      chatSessions.value = new Map(chatSessions.value) // 强制更新
     }
     
     // 获取或更新会话

@@ -1,7 +1,7 @@
 // 后端服务地址
 export const BACKEND_URL = 'http://localhost:3333'
 export const WS_URL = BACKEND_URL.replace('http', 'ws')
-export const MINIO_URL = 'http://localhost:1900'  // 添加 MinIO 服务地址
+export const MINIO_URL = 'http://localhost:5000'  // 添加 MinIO 服务地址
 
 // 聊天配置
 export const CHAT_CONFIG = {

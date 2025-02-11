@@ -26,14 +26,22 @@ export const useUserStore = defineStore('user', {
             try {
                 const data = await request(API_ENDPOINTS.USER, {
                     method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
                     body: JSON.stringify({
                         id: this.userData.id
                     })
                 })
 
                 console.log('Avatar response:', data)
-                if (data.status === 200 && data.data) {
-                    this.userAvatar = data.data ? API_BASE_URL + data.data : defaultAvatar
+                if (data.status === 200 && data.data && data.data.avatar) {
+                    const avatar = data.data.avatar
+                    if (avatar.startsWith('http') || avatar.startsWith('data:')) {
+                        this.userAvatar = avatar
+                    } else {
+                        this.userAvatar = `${API_BASE_URL}${avatar}`
+                    }
                 } else {
                     this.userAvatar = defaultAvatar
                 }
